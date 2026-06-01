@@ -56,7 +56,8 @@ class VIPERSpatialEncoder(nn.Module):
 
         # Freeze early blocks
         # EfficientNet-B4 has 9 MBConv blocks (features[1] through features[8])
-        # We freeze the first `freeze_blocks` blocks
+        # freeze_blocks=9 means freeze entire backbone (recommended for small datasets)
+        # freeze_blocks=6 means fine-tune last 2 blocks (recommended for larger datasets)
         for i, block in enumerate(base.features):
             if i <= freeze_blocks:
                 for param in block.parameters():
