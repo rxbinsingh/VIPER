@@ -37,6 +37,14 @@ datasets/
 celeb-df-v2/
 FaceForensics/
 DFDC/
+dataset_production/real/
+dataset_production/face_swap/
+dataset_production/expression_swap/
+dataset_production/fullbody_gan/
+# Keep metadata and README — commit those
+!dataset_production/metadata.csv
+!dataset_production/rejected_videos.csv
+!dataset_production/README.md
 
 # InsightFace model cache
 .insightface/
