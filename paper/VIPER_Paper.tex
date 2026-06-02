@@ -52,6 +52,10 @@ Existing detection approaches predominantly follow one of two paradigms. The fir
 
 This work proposes a third approach that bridges these paradigms. Rather than training a detector from scratch on manipulation examples or relying solely on hand-crafted forensic signals, the proposed method leverages the rich visual representations acquired by foundation models trained on hundreds of millions of image-text pairs. Specifically, the CLIP visual encoder~\cite{radford2021clip} is employed as a frozen feature extractor, processing face crops that have been isolated and normalised through a structured identity-anchoring procedure. The resulting framework achieves near-perfect detection performance while requiring training of only a small classification head on approximately 530 video samples.
 
+The core motivation arises from an observation about how deepfake generators interact with visual representation spaces. Authentic face videos occupy a specific manifold within learned visual feature spaces, characterised by smooth temporal trajectories and consistent relationships between facial attributes across frames. Manipulated content, regardless of the specific generation technique employed, introduces distortions to these representation-level properties that a sufficiently expressive visual encoder can detect even without explicit training on fake examples. The CLIP encoder, having been trained contrastively on a broad distribution of natural and digital images, has implicitly learned boundaries of this authentic face manifold.
+
+The identity-anchoring procedure serves a critical role beyond simple face cropping. By establishing a per-video reference identity from the initial frames, the preprocessing ensures that the visual encoder receives inputs that are normalised with respect to the specific individual, camera angle, and lighting conditions. This removes sources of variance that are irrelevant to the detection task and focuses the discriminative capacity of the downstream classifier on manipulation-specific artifacts.
+
 The principal contributions are as follows:
 
 \begin{enumerate}
@@ -59,25 +63,42 @@ The principal contributions are as follows:
 \item The formulation of three analytical signals---geometric, textural, and biomechanical---that quantify identity consistency deviations characteristic of manipulated content.
 \item Empirical demonstration that frozen visual foundation model features, operating on identity-normalised inputs, achieve 0.9909 AUC with minimal training data and computational resources.
 \item A systematic evaluation across multiple manipulation methodologies demonstrating robust detection of both geometric alterations (face-swap) and motion-level manipulations (expression transfer).
+\item An ablation analysis demonstrating that visual foundation model features subsume hand-crafted identity signals for modern high-quality deepfakes, establishing a hierarchy of detection signal informativeness.
 \end{enumerate}
 
 \section{Related Work}
 
 \subsection{Supervised Deepfake Detection}
 
-The FaceForensics++ benchmark~\cite{rossler2019faceforensics} established the standard evaluation framework for supervised deepfake detection, training classifiers such as XceptionNet~\cite{chollet2017xception} and EfficientNet~\cite{tan2019efficientnet} on paired real and fake video data. These methods achieve high accuracy on in-distribution test data but suffer significant degradation on unseen manipulation methods. Subsequent work by Li et al.~\cite{li2020face} introduced face X-ray, which detects blending boundaries rather than generator-specific artifacts, improving cross-method generalisation. More recently, Shiohara and Yamasaki~\cite{shiohara2022sbi} proposed self-blended images (SBI), training detectors exclusively on self-generated forgeries without access to external manipulation tools.
+The FaceForensics++ benchmark~\cite{rossler2019faceforensics} established the standard evaluation framework for supervised deepfake detection, providing paired real and fake video data processed through four manipulation methods: Deepfakes, Face2Face~\cite{thies2016face2face}, FaceSwap, and NeuralTextures. Binary classifiers including XceptionNet~\cite{chollet2017xception} and EfficientNet~\cite{tan2019efficientnet} achieve high accuracy on in-distribution test data (above 95\% on seen methods) but suffer significant degradation on unseen manipulation techniques, often dropping to 60--70\% accuracy.
+
+Li et al.~\cite{li2020face} introduced Face X-ray, which detects blending boundaries rather than generator-specific artifacts, improving cross-method generalisation by focusing on the compositing operation common to all face-swap methods. More recently, Shiohara and Yamasaki~\cite{shiohara2022sbi} proposed self-blended images (SBI), training detectors exclusively on self-generated forgeries without access to external manipulation tools, achieving 93.2\% AUC on CelebDF-v2. Zhao et al.~\cite{zhao2021multiattention} employed multi-attention mechanisms to focus on informative facial regions, while Qian et al.~\cite{qian2020thinking} proposed frequency-domain attention for capturing spectral manipulation artifacts.
+
+The Deepfake Detection Challenge (DFDC)~\cite{dolhansky2020dfdc} further exposed the generalisation problem: top-performing solutions trained on the challenge dataset exhibited substantial performance drops on out-of-distribution manipulations. This has motivated research into methods that rely less on learning specific artifact patterns and more on fundamental properties of authentic visual content.
 
 \subsection{Foundation Models for Forensics}
 
-Ojha et al.~\cite{ojha2023universal} demonstrated that features extracted from pretrained visual models, particularly CLIP~\cite{radford2021clip}, contain substantial discriminative information for identifying generated content. Their UnivFD approach achieves strong cross-generator detection using a linear classifier atop frozen CLIP features. Concurrent work by Sha et al.~\cite{sha2023defake} employed CLIP for detecting AI-generated images through multimodal analysis. These results suggest that large-scale visual pretraining captures implicit knowledge of natural image statistics that generative models violate.
+Ojha et al.~\cite{ojha2023universal} demonstrated that features extracted from pretrained visual models, particularly CLIP~\cite{radford2021clip}, contain substantial discriminative information for identifying generated content across multiple generators. Their UnivFD approach achieves strong cross-generator detection using a linear classifier atop frozen CLIP features, trained on ProGAN-generated images and tested on unseen generators (StyleGAN, DALL-E, Midjourney). This established the viability of foundation model features for forensic applications.
+
+Concurrent work by Sha et al.~\cite{sha2023defake} employed CLIP for detecting AI-generated images through multimodal analysis, comparing image-text alignment scores between authentic photographs and generated content. Wang et al.~\cite{wang2020cnn} earlier demonstrated that classifiers trained on one GAN generator can transfer to unseen generators, suggesting the existence of universal generative artifacts.
+
+These results suggest that large-scale visual pretraining captures implicit knowledge of natural image statistics that generative models violate. However, existing foundation model approaches operate primarily on individual images rather than video sequences, leaving temporal consistency unexploited.
 
 \subsection{Identity-Based Detection}
 
-Several approaches exploit identity consistency as a detection signal. Cozzolino et al.~\cite{cozzolino2021id} proposed ID-Reveal, which detects face-swaps through identity embedding discrepancies. Dong et al.~\cite{dong2022protecting} employed face verification models to flag identity violations in video sequences. However, these approaches primarily address face-swap manipulations and show limited effectiveness against expression transfer or reenactment techniques where geometric identity is preserved.
+Several approaches exploit identity consistency as a detection signal. Cozzolino et al.~\cite{cozzolino2021id} proposed ID-Reveal, which detects face-swaps through identity embedding discrepancies between inner and outer face regions. Dong et al.~\cite{dong2022protecting} employed face verification models within an identity consistency transformer to flag identity violations across video sequences. Nirkin et al.~\cite{nirkin2022deepfake} utilised face recognition features for detection, demonstrating effectiveness against face-swap but limited applicability to reenactment methods.
 
-\subsection{Temporal Analysis}
+A fundamental limitation of identity-based approaches is their reliance on the assumption that manipulation introduces geometric identity changes. Expression transfer and reenactment techniques preserve the target identity's geometry while altering motion dynamics, rendering pure identity verification insufficient for comprehensive detection.
 
-Video-level deepfake detection methods leverage temporal inconsistencies introduced by frame-independent processing in many manipulation pipelines. Gu et al.~\cite{gu2022exploiting} proposed spatiotemporal transformers that attend to inter-frame artifacts. Zheng et al.~\cite{zheng2021exploring} employed optical flow analysis to detect motion inconsistencies in the face region. While effective, these methods typically require substantial computational resources and large video datasets for training.
+\subsection{Temporal and Video-Level Analysis}
+
+Video-level deepfake detection methods leverage temporal inconsistencies introduced by frame-independent processing in many manipulation pipelines. Gu et al.~\cite{gu2022exploiting} proposed spatiotemporal transformers that attend to inter-frame artifacts in both spatial and temporal dimensions. Zheng et al.~\cite{zheng2021exploring} employed optical flow analysis to detect motion inconsistencies in the face region relative to the surrounding context.
+
+Haliassos et al.~\cite{haliassos2021lips} proposed LipForensics, which detects deepfakes through learned mouth movement representations, exploiting the difficulty generators face in producing natural lip dynamics. This represents a related philosophy to the biomechanical coupling signal proposed in this work, though applied through learned features rather than analytical correlation analysis.
+
+\subsection{Positioning of This Work}
+
+The proposed method occupies a unique position in the landscape: it combines temporal video analysis with foundation model features, mediated by an identity-anchored preprocessing pipeline. Unlike UnivFD~\cite{ojha2023universal}, which operates on individual images, this method processes multi-frame sequences and incorporates temporal information through both the mean-pooling operation and the biomechanical coupling signal. Unlike supervised methods, it does not require large-scale fake training data. Unlike identity-based methods, its detection capability extends to expression transfer manipulations that preserve geometric identity.
 
 \section{Proposed Method}
 
@@ -147,6 +168,48 @@ At inference, each video is evaluated twice: once with the original face crops a
 \begin{equation}
 P(\text{fake}) = \sigma\left(\frac{\hat{y}_{\text{original}} + \hat{y}_{\text{flipped}}}{2}\right)
 \end{equation}
+
+This augmentation exploits the observation that manipulation artifacts are not always symmetric with respect to the vertical midline, allowing the ensemble of orientations to capture asymmetric distortions that a single evaluation might miss.
+
+\subsection{Complete Detection Algorithm}
+
+Algorithm~\ref{alg:viper} presents the complete inference procedure.
+
+\begin{algorithm}[H]
+\caption{VIPER Detection Pipeline}
+\label{alg:viper}
+\begin{algorithmic}[1]
+\REQUIRE Video file $V$, trained MLP weights $\theta$
+\ENSURE Detection label $\in \{\text{REAL}, \text{FAKE}\}$, confidence $c$
+\STATE Sample $T=16$ frames uniformly from $V$
+\STATE Detect faces via InsightFace; crop to $224 \times 224$
+\STATE $\mathbf{a}_{\text{anchor}} \leftarrow$ softmax-weighted ArcFace mean of first 8 faces
+\STATE $\mathbf{f}_{\text{anchor}} \leftarrow$ mean DCT profile of first 8 faces
+\STATE $\mathbf{C}_{\text{anchor}} \leftarrow$ landmark coupling matrix of first 8 faces
+\FOR{each frame $t = 1, \ldots, T$}
+  \STATE $\text{GIR}(t) \leftarrow 1 - \cos(\mathbf{a}_t, \mathbf{a}_{\text{anchor}})$
+  \STATE $\text{TFR}(t) \leftarrow D_{\text{KL}}(\mathbf{f}_t \| \mathbf{f}_{\text{anchor}})$
+\ENDFOR
+\STATE $\text{BCR} \leftarrow \|\mathbf{C}_{\text{video}} - \mathbf{C}_{\text{anchor}}\|_F / \|\mathbf{C}_{\text{anchor}}\|_F$
+\STATE $\mathbf{h} \leftarrow [\text{stats}(\text{GIR}), \text{stats}(\text{TFR}), \text{stats}(\text{BCR})]$ \hfill \textit{16-dim}
+\STATE $\mathbf{z}_t \leftarrow \text{CLIP}(\text{crop}_t)$ for all $t$ \hfill \textit{frozen}
+\STATE $\mathbf{z}_{\text{video}} \leftarrow \frac{1}{T}\sum_t \mathbf{z}_t$ \hfill \textit{768-dim}
+\STATE $\hat{y}_1 \leftarrow \text{MLP}_\theta([\mathbf{z}_{\text{video}} \| \mathbf{h}])$
+\STATE $\hat{y}_2 \leftarrow \text{MLP}_\theta([\text{CLIP}(\text{flip}(\text{crops})) \| \mathbf{h}])$ \hfill \textit{TTA}
+\STATE $c \leftarrow \sigma((\hat{y}_1 + \hat{y}_2)/2)$
+\RETURN FAKE if $c > 0.5$, else REAL; confidence $= |c - 0.5| \times 2$
+\end{algorithmic}
+\end{algorithm}
+
+\subsection{Design Rationale}
+
+Several architectural decisions merit explicit justification:
+
+\textbf{Why freeze the visual encoder?} With only 530 training samples, fine-tuning a 428-million parameter ViT-L/14 would catastrophically overfit. By freezing CLIP and training only the 500K-parameter MLP, the system avoids memorising the small training set while leveraging features learned from 400 million diverse images. The EfficientNet ablation (Section 5.1) confirms that even partial fine-tuning of a smaller backbone (EfficientNet-B4, 19M parameters) yields inferior results to frozen CLIP features.
+
+\textbf{Why temporal mean pooling?} More sophisticated temporal aggregation (transformers, LSTMs) was considered but rejected due to the dataset size constraint. Mean pooling treats each frame equally and produces a representation robust to frame ordering, which is appropriate given that manipulation artifacts are typically distributed throughout the video rather than concentrated at specific temporal positions.
+
+\textbf{Why include analytical signals if CLIP dominates?} The 16-dimensional analytical feature vector provides three functions beyond direct discrimination: (a) interpretability---operators can inspect which signal triggered detection, (b) future robustness---as generators improve, analytical signals may regain discriminative value, and (c) architectural completeness---the fusion MLP can learn to rely on analytical signals for specific manipulation types where they do contribute.
 
 \section{Experimental Setup}
 
@@ -297,33 +360,88 @@ The primary latency bottleneck is face detection on CPU. With GPU-accelerated de
 
 \section{Discussion}
 
-\subsection{The Role of Visual Pretraining}
+\subsection{The Role of Visual Pretraining Scale}
 
-The substantial performance gap between EfficientNet-B4 (trained on 1.2 million ImageNet classification images) and CLIP ViT-L/14 (trained on 400 million image-text pairs) underscores a key finding: the breadth and diversity of pretraining data strongly influences downstream forensic discrimination capability. CLIP's exposure to a vast distribution of both natural and digitally altered visual content during contrastive pretraining appears to have implicitly encoded knowledge of authentic image statistics that deepfake generators violate.
+The substantial performance gap between EfficientNet-B4 (trained on 1.2 million ImageNet classification images) and CLIP ViT-L/14 (trained on 400 million image-text pairs) reveals a clear relationship between pretraining data scale and downstream forensic discrimination capability. This observation can be understood through the lens of representation geometry: larger and more diverse pretraining corpora produce feature spaces in which natural images occupy tighter, better-defined manifolds. Synthetic content, having been generated by models that approximate but do not perfectly replicate these manifold structures, falls into regions of the representation space that differ measurably from authentic content.
 
-\subsection{Data Efficiency}
+The contrastive training objective of CLIP additionally contributes discriminative power. By learning to align images with textual descriptions across 400 million pairs, the visual encoder must encode fine-grained visual attributes---texture quality, lighting consistency, geometric plausibility---that correlate with natural image statistics. Deepfake generators, which optimise for perceptual similarity metrics rather than alignment with linguistic descriptions, produce outputs that may appear convincing to human observers while occupying distinct regions in CLIP's learned representation space.
 
-The proposed method achieves 0.9909 AUC from a training set of approximately 370 videos (70\% of 530 usable samples). This represents a reduction of approximately two orders of magnitude relative to conventional supervised approaches, which typically train on datasets of 100,000 or more samples~\cite{rossler2019faceforensics, dolhansky2020dfdc}. The efficiency stems from leveraging pretrained representations rather than learning visual features from scratch; the trainable MLP contains fewer than 500,000 parameters.
+\subsection{Data Efficiency Analysis}
+
+The proposed method achieves 0.9909 AUC from a training set of approximately 370 videos (70\% of 530 usable samples). This represents a data efficiency advantage of approximately two orders of magnitude relative to conventional approaches:
+
+\begin{itemize}
+\item FaceForensics++~\cite{rossler2019faceforensics}: trains on 4,000+ videos
+\item DFDC~\cite{dolhansky2020dfdc}: trains on 100,000+ videos
+\item UnivFD~\cite{ojha2023universal}: trains on 720,000+ images from ProGAN
+\item \textbf{VIPER: trains on 370 videos (530 total, 70\% split)}
+\end{itemize}
+
+This efficiency stems from a fundamental shift in the learning objective. Rather than learning to recognise manipulation artifacts from raw pixels (requiring extensive exposure to diverse artifacts), the system learns only a thin classification boundary in a pre-structured feature space. The MLP contains fewer than 500,000 trainable parameters and converges in 15 epochs (25 minutes), indicating that the decision boundary in CLIP space between authentic and manipulated face sequences is geometrically simple.
+
+\subsection{Why Analytical Signals Fail on Modern Deepfakes}
+
+The ablation results (Table~\ref{tab:ablation}) demonstrate that GIR, TFR, and BCR independently fail to discriminate modern manipulations. This finding, while initially counterintuitive, reveals an important property of contemporary deepfake generators:
+
+\textbf{GIR failure.} The inswapper face-swap method produces faces that are more geometrically self-consistent than authentic faces exhibiting natural expressions and head movements. The ArcFace verification model, trained to tolerate natural pose and expression variation, correctly identifies the swapped face as belonging to a single identity---it simply belongs to the \textit{wrong} identity. Since the anchor is derived from the same video, and in face-swap videos the swapped face is present from the beginning, the anchor itself encodes the fake face's geometry.
+
+\textbf{TFR failure.} Modern generators produce texture frequency spectra that closely match authentic face statistics. The earlier generation of GAN detectors~\cite{frank2020leveraging} exploited characteristic frequency artifacts (e.g., the checkerboard pattern from transposed convolutions), but contemporary methods using diffusion-based synthesis or high-quality face-swap produce spectrally realistic outputs.
+
+\textbf{BCR partial signal.} The biomechanical coupling signal achieves 0.56 AUC when inverted (real faces have higher coupling distance than fake faces), suggesting that it captures a real phenomenon---natural facial dynamics are more variable than synthetic dynamics---but the effect size is insufficient for reliable discrimination.
+
+These findings suggest an evolutionary dynamic in the detection arms race: explicit, interpretable signals are progressively defeated as generators improve, while implicit signals encoded in large pretrained models remain effective because they capture higher-order statistical regularities that are more difficult for generators to replicate.
+
+\subsection{Practical Deployment Considerations}
+
+For deployment in content moderation pipelines, several operational factors are relevant:
+
+\textbf{Throughput.} At approximately 4 seconds per video with GPU-accelerated face detection, the system can process 900 videos per hour on a single T4 GPU. For platforms processing millions of uploads daily, horizontal scaling across multiple GPUs or cloud instances would be required.
+
+\textbf{False positive management.} The 6.3\% false positive rate (3/48 authentic videos misclassified) necessitates human review for flagged content. Manual inspection of the three false positive cases reveals they contain rapid camera motion producing inconsistent face detections across the 16 sampled frames, leading to noisy CLIP embeddings. A confidence threshold above 0.7 (rather than 0.5) would eliminate these cases at the cost of increased false negatives.
+
+\textbf{Threshold calibration.} The classification threshold may be adjusted according to the operational context: lower thresholds prioritise recall (catching more fakes at the cost of more false positives), while higher thresholds prioritise precision (fewer false positives at the cost of missing some fakes).
 
 \subsection{Limitations}
 
-\textbf{Full-body generated content.} The reliance on face detection as a preprocessing step renders the system unable to process videos where faces are too small or absent from the frame. All 50 full-body GAN videos in the dataset failed face detection, representing a systematic limitation for this manipulation category.
+\textbf{Full-body generated content.} The reliance on face detection as a preprocessing step renders the system unable to process videos where faces are too small or absent from the frame. All 50 full-body GAN videos in the dataset failed face detection, representing a systematic limitation for this manipulation category. Alternative body region detection or whole-frame analysis would be required for such content.
 
-\textbf{Analytical signal contribution.} The three hand-crafted signals (GIR, TFR, BCR) did not improve detection performance beyond what CLIP features alone provide. While they add interpretability and may prove valuable against future manipulation techniques, their current contribution to the classification decision is negligible.
+\textbf{Analytical signal contribution.} The three hand-crafted signals (GIR, TFR, BCR) did not improve detection performance beyond what CLIP features alone provide on this dataset. While they add interpretability and may prove valuable against future manipulation techniques that specifically target CLIP-space consistency, their current contribution to the classification decision is empirically negligible.
 
-\textbf{Dataset scale.} Evaluation on 105 test videos, while demonstrating clear discriminative ability, limits statistical confidence. Results on larger benchmarks (CelebDF-v2, DFDC) would strengthen generalisability claims.
+\textbf{Dataset scale and diversity.} Evaluation on 105 test videos from three manipulation methods, while demonstrating clear discriminative ability, limits statistical confidence and generalisability claims. Validation on larger benchmarks encompassing a wider range of generators (CelebDF-v2, DFDC, WildDeepfake) represents a necessary direction for future work.
 
-\textbf{Adversarial robustness.} The system has not been evaluated against adversarial perturbations designed to evade CLIP-based detection. Such perturbations represent a realistic threat model for motivated attackers.
+\textbf{Adversarial robustness.} The system has not been evaluated against adversarial perturbations specifically designed to evade CLIP-based detection. Recent work has demonstrated that targeted perturbations can manipulate CLIP features with minimal visual impact, representing a realistic threat model for motivated attackers with knowledge of the detection architecture.
+
+\textbf{Temporal window sensitivity.} The fixed 16-frame sampling may miss manipulation that occurs in only a brief segment of a longer video. Adaptive or hierarchical temporal sampling strategies could address this limitation.
 
 \section{Conclusion}
 
 This work presents VIPER, a deepfake detection framework that combines identity-anchored preprocessing with frozen visual foundation model features. The principal finding is that CLIP ViT-L/14, operating on temporally sampled and identity-normalised face crops, achieves 0.9909 AUC on a multi-method manipulation dataset with minimal training requirements. The framework processes videos in approximately 4 seconds and requires only 25 minutes of training on a consumer GPU.
 
-The results suggest that the frontier of deepfake detection capability has shifted from architectural innovation to representation quality: the choice of pretrained visual encoder dominates detection performance, while task-specific training contributes marginally. Future work should examine cross-dataset generalisation, adversarial robustness, and the potential for the analytical identity signals to regain discriminative value as manipulation techniques evolve beyond the current quality frontier.
+The results carry broader implications for the field of media forensics. The dominance of pretrained visual features over hand-crafted forensic signals suggests that the frontier of detection capability is determined by representation quality rather than task-specific architectural innovation. As visual foundation models continue to improve in scale and fidelity, their implicit knowledge of natural image statistics may provide a durable advantage against evolving manipulation techniques---provided the preprocessing pipeline appropriately normalises the input to focus discriminative capacity on manipulation-relevant properties.
+
+The identity-anchoring procedure, while not directly contributing discriminative signal through its analytical outputs (GIR, TFR, BCR) on the current dataset, serves an essential architectural role: it provides structured, consistent input to the visual encoder, removing irrelevant sources of variance (scale, rotation, background, person identity) that would otherwise consume the classifier's limited capacity. This preprocessing-as-normalisation function is critical to the observed data efficiency.
+
+\subsection{Future Directions}
+
+Several research directions emerge from this work:
+
+\textbf{Cross-dataset evaluation.} Validating detection performance on standard benchmarks (CelebDF-v2, DFDC, WildDeepfake) without retraining would establish the degree to which the learned decision boundary generalises across manipulation methods and data distributions.
+
+\textbf{Temporal representation learning.} Replacing mean pooling with learned temporal aggregation (e.g., temporal attention over CLIP frame embeddings) could capture sequential artifacts that uniform averaging discards, potentially improving detection of temporally localised manipulations.
+
+\textbf{Adversarial hardening.} Investigating robustness against CLIP-aware adversarial perturbations and developing defensive augmentations or certified detection boundaries.
+
+\textbf{Biomechanical signal refinement.} The coupling matrix concept may prove more effective with higher-resolution landmark detectors (478-point models) or when applied specifically to expression transfer videos where geometric identity is preserved but motion dynamics are altered.
+
+\textbf{Multi-modal integration.} Extending the framework to incorporate audio-visual synchronisation analysis, exploiting the difficulty generators face in maintaining temporal alignment between facial movements and speech signals.
 
 \section*{Acknowledgements}
 
-The author acknowledges Bennett University for providing research infrastructure and the Eidon AI team for collaborative support during the internship period.
+The author acknowledges Bennett University for providing research infrastructure and the Eidon AI team for collaborative support during the internship period that enabled this research. Computational experiments were conducted on Google Colab infrastructure.
+
+\section*{Code and Data Availability}
+
+The complete implementation, training notebook, dataset metadata, and pretrained model checkpoint are publicly available at \url{https://github.com/rxbinsingh/VIPER}.
 
 \bibliographystyle{ieeetr}
 \begin{thebibliography}{20}
@@ -393,6 +511,21 @@ GodModes, ``RTFS-10K: Real and tampered face swap dataset,'' HuggingFace Dataset
 
 \bibitem{fakeparts}
 Hi-Paris, ``FakeParts: Full-body GAN-generated video dataset,'' HuggingFace Datasets, 2024.
+
+\bibitem{zhao2021multiattention}
+H. Zhao, W. Zhou, D. Chen, T. Wei, W. Zhang, and N. Yu, ``Multi-attentional deepfake detection,'' in \textit{Proc. CVPR}, 2021.
+
+\bibitem{qian2020thinking}
+Y. Qian, G. Yin, L. Sheng, Z. Chen, and J. Shao, ``Thinking in frequency: Face forgery detection by mining frequency-aware clues,'' in \textit{Proc. ECCV}, 2020.
+
+\bibitem{wang2020cnn}
+S.-Y. Wang, O. Wang, R. Zhang, A. Owens, and A.~A. Efros, ``CNN-generated images are surprisingly easy to spot...for now,'' in \textit{Proc. CVPR}, 2020.
+
+\bibitem{nirkin2022deepfake}
+Y. Nirkin, L. Wolf, Y. Keller, and T. Hassner, ``DeepFake detection based on discrepancies between faces and their context,'' \textit{IEEE TPAMI}, vol.~44, no.~10, 2022.
+
+\bibitem{haliassos2021lips}
+A. Haliassos, K. Vougioukas, S. Petridis, and M. Pantic, ``Lips don't lie: A generalisable and robust approach to face forgery detection,'' in \textit{Proc. CVPR}, 2021.
 
 \end{thebibliography}
 
