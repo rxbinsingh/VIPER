@@ -2,6 +2,7 @@
 
 **Deepfake detection via biometric identity consistency analysis.**
 
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/rxbinsingh/VIPER/blob/main/notebooks/VIPER_Train_Colab.ipynb)
 [![HuggingFace](https://img.shields.io/badge/🤗%20HuggingFace-VIPER-FFD21E)](https://huggingface.co/rxbinsingh/VIPER)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Python 3.9+](https://img.shields.io/badge/python-3.9%2B-blue)](https://www.python.org/)
