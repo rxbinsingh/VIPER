@@ -37,42 +37,56 @@ The **VIPER score** is the reaction energy — how much the anchor fails to bond
 ## How It Works
 
 ```
-Video input
+Video input (any length, any resolution)
     │
-    ├── First 8 frames ──────────────────► Identity Anchor Formation
-    │                                           │
-    │                                    ┌──────┴──────┐──────────────┐
-    │                                    ▼             ▼              ▼
-    │                              ArcFace         DCT Profile   Coupling Matrix
-    │                              Anchor          Anchor        Anchor
-    │                                    └──────┬──────┘──────────────┘
-    │                                           │
-    └── All 16 frames ───────────────────► Displacement Probe
-                                                │
-                                    ┌───────────┼───────────┐
-                                    ▼           ▼           ▼
-                                  GIR(t)      TFR(t)      BCR(t)
-                              (ArcFace     (DCT KL    (Coupling
-                               distance)  divergence)  distance)
-                                    └───────────┼───────────┘
-                                                │
-                                    EfficientNet-B4 Spatial
-                                    Encoder (fine-tuned)
-                                                │
-                                    Fusion MLP (1808-dim input)
-                                                │
-                                         VIPER Score
-                                                │
-                                         REAL / FAKE
+    ├── InsightFace face detection + 224×224 crop
+    │
+    ├── First 8 frames ──────────► Identity Anchor Formation
+    │                                    │
+    │                          ┌─────────┴─────────┐─────────────┐
+    │                          ▼                   ▼             ▼
+    │                    ArcFace 512-d        DCT Profile    dlib 68-pt
+    │                    Anchor               Anchor         Coupling Matrix
+    │                          └─────────┬─────────┘─────────────┘
+    │                                    │
+    │                             16-dim hand features
+    │                           (GIR + TFR + BCR stats)
+    │
+    └── All 16 frames ──────────► CLIP ViT-L/14 (frozen)
+                                         │
+                                   768-dim per frame
+                                   Mean pool → 768-dim
+                                         │
+                                         ▼
+                                  ┌─────────────┐
+                                  │ Fusion MLP   │
+                                  │ [768 | 16]   │
+                                  │ = 784-dim    │
+                                  │ → 512 → 128  │
+                                  │ → 1 (logit)  │
+                                  └─────────────┘
+                                         │
+                                    TTA (flip avg)
+                                         │
+                                    REAL / FAKE
 ```
 
-### Three Biological Signals
+### Three Analytical Signals (16-dim hand features)
 
-| Signal | What it measures | Catches |
-|--------|-----------------|---------|
-| **GIR** — Geometric Identity Residual | ArcFace cosine distance from anchor | Face swaps, identity replacement |
-| **TFR** — Texture Frequency Residual | KL divergence of DCT frequency profile | Diffusion fakes, GAN texture artifacts |
-| **BCR** — Biomechanical Coupling Residual | Frobenius distance of facial landmark coupling matrix | Reenactment deepfakes, neural talking heads |
+| Signal | Method | What It Measures |
+|--------|--------|-----------------|
+| **GIR** — Geometric Identity Residual | ArcFace cosine distance from anchor | Skull geometry consistency |
+| **TFR** — Texture Frequency Residual | DCT KL divergence from anchor profile | Skin texture frequency consistency |
+| **BCR** — Biomechanical Coupling Residual | dlib landmark coupling matrix Frobenius distance | Facial muscle movement consistency |
+
+### Visual Backbone
+
+| Component | Details |
+|---|---|
+| Model | CLIP ViT-L/14 (OpenAI, frozen) |
+| Output | 768-dim embedding per frame |
+| Temporal | Mean pool across 16 sampled frames |
+| Training | Only the 784→512→128→1 MLP trains (~25 min) |
 
 ---
 
@@ -226,18 +240,31 @@ MyDrive/VIPER/checkpoints/
 ```
 VIPER/
 ├── src/
-│   ├── preprocessing.py         # Frame extraction, face detection (InsightFace)
+│   ├── preprocessing.py         # Frame extraction, InsightFace face detection
 │   ├── anchor_extractor.py      # Identity anchor: ArcFace + DCT + coupling matrix
-│   ├── displacement_probe.py    # GIR + TFR + BCR per frame/window
-│   ├── spatial_encoder.py       # EfficientNet-B4 fine-tuning
-│   ├── fusion_classifier.py     # MLP fusion of all signals
+│   ├── displacement_probe.py    # GIR + TFR residuals per frame
+│   ├── bcr_dlib.py              # BCR via dlib 68-point landmarks
+│   ├── clip_model.py            # CLIP ViT-L/14 + Fusion MLP (production model)
+│   ├── spatial_encoder.py       # EfficientNet-B4 (v1/v2, superseded by CLIP)
+│   ├── fusion_classifier.py     # Legacy fusion model (v1/v2)
+│   ├── dataset.py               # Dataset loader from metadata.csv
 │   └── viper_complete.py        # Full inference pipeline
 ├── eval/
 │   ├── evaluate.py              # AUC, accuracy, confusion matrix
 │   └── ablation.py              # Per-signal contribution analysis
+├── dataset_production/
+│   ├── metadata.csv             # 580 video metadata (labels, sources, quality)
+│   ├── rejected_videos.csv      # 156 rejected videos with reasons
+│   └── README.md                # Dataset documentation
+├── notebooks/
+│   └── VIPER_Train_Colab.ipynb  # Full training notebook
 ├── app.py                       # Gradio demo
 ├── train.py                     # Training script
+├── test_pipeline.py             # Smoke test (GPU required)
+├── test_local.py                # Local validation (no GPU)
 ├── requirements.txt
+├── setup.py
+├── LICENSE
 └── README.md
 ```
 
@@ -249,7 +276,7 @@ VIPER/
 - CUDA GPU (T4 or better; 8GB+ VRAM for training)
 - See `requirements.txt`
 
-Key dependencies: `torch`, `torchvision`, `insightface`, `mediapipe`, `opencv-python`, `scipy`, `gradio`
+Key dependencies: `torch`, `torchvision`, `open_clip_torch`, `insightface`, `dlib`, `opencv-python`, `scipy`, `gradio`
 
 ---
 
