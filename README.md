@@ -78,15 +78,51 @@ Video input
 
 ## Results
 
-Evaluated on **CelebDF-v2** (590 real + 5,639 fake videos):
+Evaluated on **580-video multi-method deepfake dataset** (250 real, 220 face\_swap, 60 expression\_swap, 50 fullbody\_gan):
 
-| Configuration | AUC | Accuracy |
-|---|---|---|
-| GIR alone (ArcFace) | ~0.82 | ~76% |
-| TFR alone (DCT texture) | ~0.71 | ~68% |
-| BCR alone (Biomechanical) | ~0.78 | ~73% |
-| GIR + TFR + BCR (analytical) | ~0.86 | ~80% |
-| **VIPER full (+ EfficientNet-B4)** | **~0.91** | **~85%** |
+| Model Version | Backbone | Test AUC | Accuracy |
+|---|---|---|---|
+| v1 | EfficientNet-B4 (frozen) | 0.9072 | 82.9% |
+| v2 | EfficientNet-B4 (fine-tuned) | 0.9309 | 85.7% |
+| **v3 (final)** | **CLIP ViT-L/14 (frozen) + TTA** | **0.9909** | **95.2%** |
+
+### Per-Fake-Type Performance (v3)
+
+| Attack Type | AUC | Accuracy | Test Videos |
+|---|---|---|---|
+| Face swap (inswapper) | 0.9931 | 95.6% | 42 |
+| Expression swap (NeuralTextures) | 0.9847 | 93.7% | 15 |
+| Full-body GAN | N/A | N/A | 0 (face detection fails on full-body) |
+| **All combined** | **0.9909** | **95.2%** | **105** |
+
+### Confusion Matrix (v3)
+
+```
+              Predicted Real  Predicted Fake
+Actual Real         45              3
+Actual Fake          2             55
+```
+
+- **False Positive Rate:** 6.3% (3/48 reals flagged as fake)
+- **False Negative Rate:** 3.5% (2/57 fakes missed)
+- **Fake Recall:** 96.5%
+
+### Inference Speed
+
+| Stage | Time |
+|---|---|
+| CLIP inference + TTA (from cache) | 0.65s per video |
+| Face detection preprocessing (CPU) | ~10-14s per video |
+| **End-to-end (GPU preprocessing)** | **~4s per video** |
+
+### Training Details
+
+- **Backbone:** CLIP ViT-L/14 (openai pretrained, fully frozen)
+- **Classifier:** MLP 784 → 512 → 128 → 1 (BatchNorm + Dropout 0.4)
+- **Training epochs:** 15
+- **Training time:** ~25 minutes on free Colab T4
+- **TTA:** Horizontal flip average at test time
+- **Dataset:** 530 usable videos after face detection (91% success rate)
 
 ---
 
@@ -151,39 +187,36 @@ print(result["signals"])      # per-signal breakdown
 
 ## Training
 
-### 1. Download CelebDF-v2
+### 1. Upload dataset to Google Drive
 
-```bash
-# Free, no form required
-# https://github.com/yuezunli/celeb-deepfakeforensics
-# Download via their Google Drive link
+```
+MyDrive/VIPER/dataset_production/
+    real/               ← 250 real videos
+    face_swap/          ← 220 face-swap deepfakes
+    expression_swap/    ← 60 expression-swap deepfakes
+    fullbody_gan/       ← 50 GAN deepfakes
+    metadata.csv
 ```
 
-### 2. Train VIPER
+### 2. Open Colab notebook
 
-```bash
-python train.py \
-    --data_dir /path/to/celeb-df-v2 \
-    --cache_dir ./cache \
-    --save_dir ./checkpoints \
-    --epochs 15 \
-    --batch_size 16
+Open `notebooks/VIPER_Train_Colab.ipynb` from GitHub in Colab with T4 GPU runtime.
+
+### 3. Run all cells
+
+- Preprocessing: ~1h 44min (CPU face detection, cached to Drive)
+- Training v3 (CLIP): ~25 minutes
+- Evaluation: ~2 minutes
+
+Total: ~2.5 hours for a complete run from scratch.
+
+### 4. Results saved to Drive
+
 ```
-
-Training time: **~2.5 hours on free Colab T4**.
-
-### 3. Evaluate
-
-```bash
-python eval/evaluate.py \
-    --data_dir /path/to/celeb-df-v2 \
-    --checkpoint checkpoints/viper_best.pt
-```
-
-### 4. Ablation study
-
-```bash
-python eval/ablation.py --data_dir /path/to/celeb-df-v2
+MyDrive/VIPER/checkpoints/
+    viper_best_v3_clip.pt    ← production checkpoint
+    final_report_v3.json     ← all metrics
+    training_curves.png      ← loss/AUC plots
 ```
 
 ---
