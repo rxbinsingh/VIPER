@@ -79,6 +79,9 @@ tmp/
 temp/
 *.tmp
 
+# Paper (kept local only, not published)
+paper/
+
 # Assets (generated plots — regenerate from code)
 assets/*.png
 assets/*.jpg
