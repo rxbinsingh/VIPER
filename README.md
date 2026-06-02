@@ -1,176 +1,108 @@
 # VIPER: Video Identity Perturbation and Extraction Residual
 
-**Deepfake detection via biometric identity consistency analysis.**
+**Deepfake detection inspired by displacement reactions in chemistry.**
 
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/rxbinsingh/VIPER/blob/main/notebooks/VIPER_Train_Colab.ipynb)
-[![HuggingFace](https://img.shields.io/badge/🤗%20HuggingFace-VIPER-FFD21E)](https://huggingface.co/rxbinsingh/VIPER)
+[![HuggingFace Model](https://img.shields.io/badge/🤗%20Model-VIPER-FFD21E)](https://huggingface.co/rxbinsingh/VIPER)
+[![HuggingFace Space](https://img.shields.io/badge/🤗%20Demo-Live-green)](https://huggingface.co/spaces/rxbinsingh/VIPER)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Python 3.9+](https://img.shields.io/badge/python-3.9%2B-blue)](https://www.python.org/)
 
 ---
 
-## Core Principle
+![VIPER Banner](assets/Viper_main1.png)
 
-Every real video has one biological invariant: the person's face. Their skull geometry,
-muscle coupling patterns, and skin texture frequency signature are fixed by biology.
-A deepfake — regardless of how it was made — must violate at least one of these three
-invariants because it is synthesizing or transplanting a face that was not originally there.
+---
 
-VIPER extracts an **identity anchor** from the first few frames, then measures how well
-every subsequent frame satisfies all three biological constraints. The degree of violation
-is the detection signal.
+## Core Idea
 
-### The Displacement Reaction
+> *What if we could expose deepfakes the way chemistry exposes impurities?*
+
+VIPER introduces an identity anchor (reagent C) to each video frame (compound AB). If the face is real, the anchor bonds cleanly. If it's fake, the bond fails — the synthetic face is displaced and exposed.
+
+![Displacement Reaction](assets/Displacement_reaction.png)
 
 ```
 AB + C → AC + B
 
-AB  =  deepfake frame  (fake face B embedded in real video context A)
-C   =  identity anchor  (three biological constraints of the real person)
-AC  =  anchor bonds with context  (real video — reaction completes)
-B   =  fake face displaced  (exposed because it cannot satisfy all constraints)
+AB  =  video frame (fake face B inside context A)
+C   =  identity anchor (biometric reference from first 8 frames)
+AC  =  anchor bonds successfully (REAL — low energy)
+B   =  fake face displaced/exposed (FAKE — high energy)
 ```
-
-The **VIPER score** is the reaction energy — how much the anchor fails to bond with the face.
-
----
-
-## How It Works
-
-```
-Video input (any length, any resolution)
-    │
-    ├── InsightFace face detection + 224×224 crop
-    │
-    ├── First 8 frames ──────────► Identity Anchor Formation
-    │                                    │
-    │                          ┌─────────┴─────────┐─────────────┐
-    │                          ▼                   ▼             ▼
-    │                    ArcFace 512-d        DCT Profile    dlib 68-pt
-    │                    Anchor               Anchor         Coupling Matrix
-    │                          └─────────┬─────────┘─────────────┘
-    │                                    │
-    │                             16-dim hand features
-    │                           (GIR + TFR + BCR stats)
-    │
-    └── All 16 frames ──────────► CLIP ViT-L/14 (frozen)
-                                         │
-                                   768-dim per frame
-                                   Mean pool → 768-dim
-                                         │
-                                         ▼
-                                  ┌─────────────┐
-                                  │ Fusion MLP   │
-                                  │ [768 | 16]   │
-                                  │ = 784-dim    │
-                                  │ → 512 → 128  │
-                                  │ → 1 (logit)  │
-                                  └─────────────┘
-                                         │
-                                    TTA (flip avg)
-                                         │
-                                    REAL / FAKE
-```
-
-### Three Analytical Signals (16-dim hand features)
-
-| Signal | Method | What It Measures |
-|--------|--------|-----------------|
-| **GIR** — Geometric Identity Residual | ArcFace cosine distance from anchor | Skull geometry consistency |
-| **TFR** — Texture Frequency Residual | DCT KL divergence from anchor profile | Skin texture frequency consistency |
-| **BCR** — Biomechanical Coupling Residual | dlib landmark coupling matrix Frobenius distance | Facial muscle movement consistency |
-
-### Visual Backbone
-
-| Component | Details |
-|---|---|
-| Model | CLIP ViT-L/14 (OpenAI, frozen) |
-| Output | 768-dim embedding per frame |
-| Temporal | Mean pool across 16 sampled frames |
-| Training | Only the 784→512→128→1 MLP trains (~25 min) |
 
 ---
 
 ## Results
 
-Evaluated on **580-video multi-method deepfake dataset** (250 real, 220 face\_swap, 60 expression\_swap, 50 fullbody\_gan):
+![Results](assets/VIPER_Results1.png)
 
-| Model Version | Backbone | Test AUC | Accuracy |
-|---|---|---|---|
-| v1 | EfficientNet-B4 (frozen) | 0.9072 | 82.9% |
-| v2 | EfficientNet-B4 (fine-tuned) | 0.9309 | 85.7% |
-| **v3 (final)** | **CLIP ViT-L/14 (frozen) + TTA** | **0.9909** | **95.2%** |
+| Metric | Value |
+|:-------|------:|
+| **AUC-ROC** | **0.9909** |
+| **Accuracy** | **95.2%** |
+| **Fake Recall** | **96.5%** |
+| Face-swap AUC | 0.9931 |
+| Expression-swap AUC | 0.9847 |
+| Inference | ~4s per video |
+| Training time | 25 min on T4 GPU |
+| Training data | 530 videos |
 
-### Per-Fake-Type Performance (v3)
+### Per-Manipulation-Type Detection
 
-| Attack Type | AUC | Accuracy | Test Videos |
-|---|---|---|---|
-| Face swap (inswapper) | 0.9931 | 95.6% | 42 |
-| Expression swap (NeuralTextures) | 0.9847 | 93.7% | 15 |
-| Full-body GAN | N/A | N/A | 0 (face detection fails on full-body) |
-| **All combined** | **0.9909** | **95.2%** | **105** |
+![Multiple Types](assets/multiple_types.png)
 
-### Confusion Matrix (v3)
+| Attack Type | AUC | Accuracy |
+|:------------|----:|--------:|
+| Face swap (inswapper) | 0.9931 | 95.6% |
+| Expression transfer (NeuralTextures) | 0.9847 | 93.7% |
+| **Combined** | **0.9909** | **95.2%** |
 
-```
-              Predicted Real  Predicted Fake
-Actual Real         45              3
-Actual Fake          2             55
-```
+### Model Progression
 
-- **False Positive Rate:** 6.3% (3/48 reals flagged as fake)
-- **False Negative Rate:** 3.5% (2/57 fakes missed)
-- **Fake Recall:** 96.5%
-
-### Inference Speed
-
-| Stage | Time |
-|---|---|
-| CLIP inference + TTA (from cache) | 0.65s per video |
-| Face detection preprocessing (CPU) | ~10-14s per video |
-| **End-to-end (GPU preprocessing)** | **~4s per video** |
-
-### Training Details
-
-- **Backbone:** CLIP ViT-L/14 (openai pretrained, fully frozen)
-- **Classifier:** MLP 784 → 512 → 128 → 1 (BatchNorm + Dropout 0.4)
-- **Training epochs:** 15
-- **Training time:** ~25 minutes on free Colab T4
-- **TTA:** Horizontal flip average at test time
-- **Dataset:** 530 usable videos after face detection (91% success rate)
+| Version | Backbone | Test AUC |
+|:--------|:---------|--------:|
+| v1 | EfficientNet-B4 (frozen) | 0.9072 |
+| v2 | EfficientNet-B4 (fine-tuned) | 0.9309 |
+| **v3** | **CLIP ViT-L/14 (frozen) + TTA** | **0.9909** |
 
 ---
 
-## Connection to SynID
+## Architecture
 
-VIPER directly extends [SynID](https://huggingface.co/rxbinsingh/SynID)'s identity
-consistency work from generation to detection:
+![Architecture](assets/Viper_Architecture.png)
 
-| SynID component | VIPER reuse |
-|---|---|
-| Multi-anchor ensemble embedding | `anchor_extractor.py` — same weighted ensemble |
-| ArcFace face-weighted encoding | GIR signal — same InsightFace buffalo_sc |
-| Bootstrap refinement scoring | Anchor quality scoring — same cosine threshold |
-| Drift correction probe | BCR window residual — measure drift instead of correcting it |
+```
+Video → InsightFace face detection → 16 face crops (224×224)
+         │
+         ├── Identity Anchor (ArcFace + DCT + dlib)
+         │   → GIR + TFR + BCR → 16-dim analytical features
+         │
+         └── CLIP ViT-L/14 (frozen) → 768-dim video embedding
+                   │
+                   ▼
+         Fusion MLP [784 → 512 → 128 → 1] + TTA → REAL / FAKE
+```
 
-*"If SynID can maintain identity consistency in generation, the same signals detect when identity consistency is violated in a fake."*
+### Three Biometric Signals
+
+| Signal | Method | Measures |
+|:------:|:-------|:---------|
+| **GIR** | ArcFace cosine distance | Geometric identity consistency |
+| **TFR** | DCT KL divergence | Texture frequency consistency |
+| **BCR** | dlib landmark coupling matrix | Biomechanical motion consistency |
 
 ---
 
 ## Quick Start
 
-### Colab (recommended — T4 GPU)
+### Live Demo
 
-```python
-!pip install -q torch torchvision insightface mediapipe opencv-python scipy gradio
+Try it now: [huggingface.co/spaces/rxbinsingh/VIPER](https://huggingface.co/spaces/rxbinsingh/VIPER)
 
-# Clone repo
-!git clone https://github.com/rxbinsingh/VIPER
-%cd VIPER
+### Colab (T4 GPU — full training)
 
-# Run demo
-!python app.py
-```
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/rxbinsingh/VIPER/blob/main/notebooks/VIPER_Train_Colab.ipynb)
 
 ### Local
 
@@ -184,18 +116,11 @@ python app.py
 ### Python API
 
 ```python
-from src.viper_complete import VIPERDetector
+import torch
+from src.clip_model import load_viper_v3
 
-# With trained checkpoint (recommended)
-detector = VIPERDetector(checkpoint="checkpoints/viper_best.pt")
-
-# Or analytical mode (no training needed)
-detector = VIPERDetector()
-
-result = detector.detect("path/to/video.mp4")
-print(result["prediction"])   # "REAL" or "FAKE"
-print(result["confidence"])   # 0.0 – 1.0
-print(result["signals"])      # per-signal breakdown
+model = load_viper_v3(checkpoint_path="checkpoints/viper_best_v3_clip.pt")
+# Process video → face crops → model(crops, hand_feats) → sigmoid → P(fake)
 ```
 
 ---
@@ -223,16 +148,26 @@ Open `notebooks/VIPER_Train_Colab.ipynb` from GitHub in Colab with T4 GPU runtim
 - Training v3 (CLIP): ~25 minutes
 - Evaluation: ~2 minutes
 
-Total: ~2.5 hours for a complete run from scratch.
-
 ### 4. Results saved to Drive
 
 ```
 MyDrive/VIPER/checkpoints/
     viper_best_v3_clip.pt    ← production checkpoint
-    final_report_v3.json     ← all metrics
-    training_curves.png      ← loss/AUC plots
+    results_v3.json          ← all metrics
 ```
+
+---
+
+## Connection to SynID
+
+VIPER extends [SynID](https://huggingface.co/rxbinsingh/SynID)'s identity consistency work from generation to detection:
+
+| SynID Component | VIPER Reuse |
+|:----------------|:------------|
+| Multi-anchor ensemble embedding | Anchor formation (ArcFace weighted average) |
+| ArcFace face-weighted encoding | GIR signal |
+| Drift correction probe | BCR concept (measure drift, don't correct it) |
+| InsightFace buffalo_sc | Same face detection model |
 
 ---
 
@@ -242,27 +177,26 @@ MyDrive/VIPER/checkpoints/
 VIPER/
 ├── src/
 │   ├── preprocessing.py         # Frame extraction, InsightFace face detection
-│   ├── anchor_extractor.py      # Identity anchor: ArcFace + DCT + coupling matrix
+│   ├── anchor_extractor.py      # Identity anchor: ArcFace + DCT + coupling
 │   ├── displacement_probe.py    # GIR + TFR residuals per frame
 │   ├── bcr_dlib.py              # BCR via dlib 68-point landmarks
-│   ├── clip_model.py            # CLIP ViT-L/14 + Fusion MLP (production model)
-│   ├── spatial_encoder.py       # EfficientNet-B4 (v1/v2, superseded by CLIP)
+│   ├── clip_model.py            # CLIP ViT-L/14 + Fusion MLP (production)
+│   ├── spatial_encoder.py       # EfficientNet-B4 (v1/v2, legacy)
 │   ├── fusion_classifier.py     # Legacy fusion model (v1/v2)
 │   ├── dataset.py               # Dataset loader from metadata.csv
 │   └── viper_complete.py        # Full inference pipeline
 ├── eval/
 │   ├── evaluate.py              # AUC, accuracy, confusion matrix
-│   └── ablation.py              # Per-signal contribution analysis
+│   └── ablation.py              # Per-signal contribution
 ├── dataset_production/
-│   ├── metadata.csv             # 580 video metadata (labels, sources, quality)
-│   ├── rejected_videos.csv      # 156 rejected videos with reasons
+│   ├── metadata.csv             # 580 video metadata
+│   ├── rejected_videos.csv      # 156 rejected with reasons
 │   └── README.md                # Dataset documentation
+├── assets/                      # Diagrams and figures
 ├── notebooks/
 │   └── VIPER_Train_Colab.ipynb  # Full training notebook
-├── app.py                       # Gradio demo
+├── app.py                       # Gradio demo (local)
 ├── train.py                     # Training script
-├── test_pipeline.py             # Smoke test (GPU required)
-├── test_local.py                # Local validation (no GPU)
 ├── requirements.txt
 ├── setup.py
 ├── LICENSE
@@ -274,21 +208,34 @@ VIPER/
 ## Requirements
 
 - Python 3.9+
-- CUDA GPU (T4 or better; 8GB+ VRAM for training)
-- See `requirements.txt`
+- CUDA GPU (T4 or better for training; CPU works for inference)
 
-Key dependencies: `torch`, `torchvision`, `open_clip_torch`, `insightface`, `dlib`, `opencv-python`, `scipy`, `gradio`
+Key dependencies: `torch`, `open_clip_torch`, `insightface`, `dlib`, `opencv-python`, `scipy`, `gradio`
+
+---
+
+## Citation
+
+```bibtex
+@misc{singh2025viper,
+  title   = {VIPER: Deepfake Detection Through Identity-Anchored
+             Visual Representation Analysis},
+  author  = {Singh, Robin},
+  year    = {2025},
+  url     = {https://github.com/rxbinsingh/VIPER}
+}
+```
 
 ---
 
 ## Author
 
 **Robin Singh** · Bennett University, India
-- Email: robinsingh4889@gmail.com
-- GitHub: [@rxbinsingh](https://github.com/rxbinsingh)
-- HuggingFace: [rxbinsingh](https://huggingface.co/rxbinsingh)
 
-*VIPER builds on [SynID](https://doi.org/10.13140/RG.2.2.30671.85925) and [GHOST](https://doi.org/10.13140/RG.2.2.27961.94567).*
+[![Email](https://img.shields.io/badge/Email-robinsingh4889@gmail.com-red)](mailto:robinsingh4889@gmail.com)
+[![GitHub](https://img.shields.io/badge/GitHub-rxbinsingh-black?logo=github)](https://github.com/rxbinsingh)
+[![HuggingFace](https://img.shields.io/badge/🤗-rxbinsingh-FFD21E)](https://huggingface.co/rxbinsingh)
+[![ResearchGate](https://img.shields.io/badge/ResearchGate-Robin--Singh--61-00CCBB?logo=researchgate)](https://www.researchgate.net/profile/Robin-Singh-61)
 
 ---
 

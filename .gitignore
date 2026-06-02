@@ -82,9 +82,8 @@ temp/
 # Paper (kept local only, not published)
 paper/
 
-# Assets (generated plots — regenerate from code)
-assets/*.png
-assets/*.jpg
+# Assets (keep committed — README images)
+# assets/*.png  ← commented out, we want these tracked
 
 # Gradio temp files
 gradio_cached_examples/
